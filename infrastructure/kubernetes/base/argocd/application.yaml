@@ -1,0 +1,22 @@
+# SAMPLE/DEMO ArgoCD Application. Overlays patch the source path per environment.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fast
+  namespace: argocd
+spec:
+  project: fast-platform
+  source:
+    repoURL: https://github.com/marconsilva/MiddlewareCCoE-Sample.git
+    targetRevision: main
+    path: infrastructure/kubernetes/overlays/dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: fast
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

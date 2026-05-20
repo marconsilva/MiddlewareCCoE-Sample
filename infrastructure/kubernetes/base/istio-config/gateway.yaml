@@ -1,0 +1,31 @@
+# SAMPLE/DEMO Istio gateway exposing FAST endpoints to corporate consumers.
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: fast-corporate-gateway
+  namespace: fast
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+    - port:
+        number: 80
+        name: http-fast
+        protocol: HTTP
+      hosts:
+        - fast-ui.sample.demo.local
+        - fast-etl.sample.demo.local
+        - fast-model.sample.demo.local
+      tls:
+        httpsRedirect: true
+    - port:
+        number: 443
+        name: https-fast
+        protocol: HTTPS
+      hosts:
+        - fast-ui.sample.demo.local
+        - fast-etl.sample.demo.local
+        - fast-model.sample.demo.local
+      tls:
+        mode: SIMPLE
+        credentialName: fast-corporate-tls

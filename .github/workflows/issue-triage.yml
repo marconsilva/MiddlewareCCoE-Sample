@@ -1,0 +1,178 @@
+name: Issue Triage
+run-name: >-
+  Issue triage #${{ github.event.issue.number || github.event.inputs.issue_number || github.run_id }}
+
+on:
+  issues:
+    types:
+      - opened
+      - labeled
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue number to re-run triage for.
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: issue-triage-${{ github.event.issue.number || github.event.inputs.issue_number || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  REQUIRED_LABELS: connectivity-request,service-mesh,infrastructure
+  PROCESSING_LABEL: processing
+
+jobs:
+  # The triage workflow validates intake labels and normalizes issue-form data
+  # so the downstream agentic IaC workflow can operate on structured input.
+  triage-request:
+    name: Triage middleware issue
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve issue payload
+        id: issue
+        uses: actions/github-script@v7
+        env:
+          MANUAL_ISSUE_NUMBER: ${{ github.event.inputs.issue_number }}
+        with:
+          script: |
+            const issueNumber = context.eventName === 'workflow_dispatch'
+              ? Number(process.env.MANUAL_ISSUE_NUMBER)
+              : Number(context.payload.issue.number);
+
+            const { data: issue } = await github.rest.issues.get({
+              ...context.repo,
+              issue_number: issueNumber,
+            });
+
+            const labels = issue.labels
+              .map((label) => typeof label === 'string' ? label : label.name)
+              .filter(Boolean);
+
+            core.setOutput('issue_number', String(issue.number));
+            core.setOutput('issue_title', issue.title);
+            core.setOutput('issue_body', issue.body || '');
+            core.setOutput('issue_labels', labels.join(','));
+
+      - name: Validate request labels
+        id: labels
+        uses: actions/github-script@v7
+        env:
+          ISSUE_LABELS: ${{ steps.issue.outputs.issue_labels }}
+          REQUIRED_LABELS: ${{ env.REQUIRED_LABELS }}
+        with:
+          script: |
+            const labels = (process.env.ISSUE_LABELS || '')
+              .split(',')
+              .map((value) => value.trim())
+              .filter(Boolean);
+            const required = (process.env.REQUIRED_LABELS || '')
+              .split(',')
+              .map((value) => value.trim())
+              .filter(Boolean);
+            const matched = labels.filter((label) => required.includes(label));
+            const missing = required.filter((label) => !labels.includes(label));
+
+            core.setOutput('is_valid', matched.length > 0 ? 'true' : 'false');
+            core.setOutput('matched_labels', matched.join(', '));
+            core.setOutput('missing_labels', missing.join(', '));
+
+      - name: Parse issue form into structured summary
+        id: parse
+        uses: actions/github-script@v7
+        env:
+          ISSUE_BODY: ${{ steps.issue.outputs.issue_body }}
+        with:
+          script: |
+            const body = process.env.ISSUE_BODY || '';
+            const sections = {};
+            let currentSection = null;
+
+            for (const rawLine of body.split(/\r?\n/)) {
+              const line = rawLine.trimEnd();
+              if (line.startsWith('### ')) {
+                currentSection = line.replace(/^###\s+/, '').trim();
+                sections[currentSection] = [];
+                continue;
+              }
+
+              if (!currentSection) {
+                continue;
+              }
+
+              const trimmed = line.trim();
+              if (!trimmed || trimmed === '_No response_' || trimmed === 'No response') {
+                continue;
+              }
+
+              if (/^[-*]\s+\[x\]\s+/i.test(trimmed)) {
+                sections[currentSection].push(trimmed.replace(/^[-*]\s+\[x\]\s+/i, '').trim());
+                continue;
+              }
+
+              if (/^[-*]\s+/i.test(trimmed)) {
+                sections[currentSection].push(trimmed.replace(/^[-*]\s+/i, '').trim());
+                continue;
+              }
+
+              sections[currentSection].push(trimmed);
+            }
+
+            const structured = Object.fromEntries(
+              Object.entries(sections)
+                .filter(([, values]) => values.length > 0)
+                .map(([key, values]) => [key, values.join('; ')])
+            );
+
+            const entries = Object.entries(structured);
+            const summary = entries.length
+              ? entries.slice(0, 6).map(([key, value]) => `- **${key}:** ${value}`).join('\n')
+              : '- No structured issue form content was detected.';
+
+            core.setOutput('structured_json', JSON.stringify(structured, null, 2));
+            core.setOutput('summary_markdown', summary);
+
+      - name: Post triage acknowledgement
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ steps.issue.outputs.issue_number }}
+          body-includes: '<!-- issue-triage-status -->'
+          edit-mode: replace
+          body: |
+            <!-- issue-triage-status -->
+            ## Middleware request triage
+
+            - **Issue:** #${{ steps.issue.outputs.issue_number }}
+            - **Matched request label(s):** ${{ steps.labels.outputs.matched_labels || 'none' }}
+            - **Processing label:** ${{ steps.labels.outputs.is_valid == 'true' && 'queued for processing' || 'not applied' }}
+
+            ### Parsed summary
+            ${{ steps.parse.outputs.summary_markdown }}
+
+            ### Status
+            ${{ steps.labels.outputs.is_valid == 'true' && 'The request matches a supported middleware intake label and has been queued for the agentic IaC workflow.' || format('This issue is missing one of the required request labels: `{0}`.', env.REQUIRED_LABELS) }}
+
+      - name: Assign processing label
+        if: steps.labels.outputs.is_valid == 'true'
+        uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
+          PROCESSING_LABEL: ${{ env.PROCESSING_LABEL }}
+        with:
+          script: |
+            await github.rest.issues.addLabels({
+              ...context.repo,
+              issue_number: Number(process.env.ISSUE_NUMBER),
+              labels: [process.env.PROCESSING_LABEL],
+            });
+
+      - name: Fail when the request label is missing
+        if: steps.labels.outputs.is_valid != 'true'
+        run: |
+          echo "Issue #${{ steps.issue.outputs.issue_number }} is missing a supported request label."
+          exit 1

@@ -1,0 +1,102 @@
+name: New connectivity request
+description: Onboard a new application or solution into the multi-environment middleware platform.
+title: "[New Connectivity] "
+labels:
+  - connectivity-request
+  - new-onboarding
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form to request initial middleware onboarding for a new application or solution.
+        Provide the scope, required connectivity capabilities, and key contacts so the GitOps intake can be prepared correctly.
+  - type: input
+    id: application_name
+    attributes:
+      label: Application name
+      description: Business or solution name to onboard.
+      placeholder: FAST
+    validations:
+      required: true
+  - type: input
+    id: tp_code
+    attributes:
+      label: TP code
+      description: Tracking or project code in the format used for intake naming.
+      placeholder: T002957293
+    validations:
+      required: true
+  - type: checkboxes
+    id: environment_scope
+    attributes:
+      label: Environment scope
+      description: Select every environment that must be included in the onboarding request.
+      options:
+        - label: DEV
+        - label: SYS
+        - label: INT
+        - label: ACC
+        - label: PRD
+        - label: PSU
+    validations:
+      required: true
+  - type: checkboxes
+    id: connectivity_types
+    attributes:
+      label: Connectivity types needed
+      description: Select the platform capabilities required for this onboarding.
+      options:
+        - label: Service Mesh Namespace
+          description: Namespace onboarding in Azure Enterprise Service Mesh.
+        - label: Azure Entra ID
+          description: Maps to Azure Microsoft Entra ID in the intake JSON.
+        - label: Private File Transfer
+          description: Maps to Azure Private Enterprise File Transfer.
+        - label: Public File Transfer
+          description: Maps to Azure Public Enterprise File Transfer.
+        - label: Private Data Streaming
+          description: Maps to Azure Private Enterprise Data Streaming.
+        - label: Public Data Streaming
+          description: Maps to Azure Public Enterprise Data Streaming.
+    validations:
+      required: true
+  - type: input
+    id: product_owner
+    attributes:
+      label: Product owner contact
+      description: Primary business owner for the request.
+      placeholder: Jane Doe <jane.doe@company.com>
+    validations:
+      required: true
+  - type: input
+    id: technical_spoc
+    attributes:
+      label: Technical SPoC contact
+      description: Primary technical point of contact for clarifications.
+      placeholder: John Smith <john.smith@company.com>
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the solution, expected traffic, dependencies, and any known middleware services needed.
+      placeholder: |
+        New application onboarding for FAST.
+        Needs a service mesh namespace, Azure Entra ID integration, and private file transfer.
+        Planned initial rollout in DEV, SYS, and INT.
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: Indicate the delivery urgency for this onboarding.
+      options:
+        - Critical
+        - High
+        - Medium
+        - Low
+      default: 2
+    validations:
+      required: true

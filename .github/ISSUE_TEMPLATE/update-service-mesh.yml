@@ -1,0 +1,78 @@
+name: Update service mesh
+description: Request a service mesh configuration change for routing, policy, or gateway resources.
+title: "[Service Mesh] "
+labels:
+  - service-mesh
+  - configuration
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for Azure Enterprise Service Mesh configuration updates.
+        Include the target namespace, service, routing intent, and any mTLS expectations.
+  - type: input
+    id: application_name
+    attributes:
+      label: Application name
+      description: Application or solution owning the service mesh configuration.
+      placeholder: FAST
+    validations:
+      required: true
+  - type: dropdown
+    id: change_type
+    attributes:
+      label: Change type
+      description: Select the Istio or gateway resource that must be created or updated.
+      options:
+        - New VirtualService
+        - Update VirtualService
+        - New DestinationRule
+        - Update AuthorizationPolicy
+        - Update Gateway
+    validations:
+      required: true
+  - type: input
+    id: service_name
+    attributes:
+      label: Service name
+      description: Kubernetes or logical service name to change.
+      placeholder: api-orders
+    validations:
+      required: true
+  - type: input
+    id: target_namespace
+    attributes:
+      label: Target namespace
+      description: Namespace in Azure Enterprise Service Mesh.
+      placeholder: fast-dev
+    validations:
+      required: true
+  - type: textarea
+    id: routing_details
+    attributes:
+      label: Routing details
+      description: Describe hosts, paths, ports, subsets, weights, headers, or gateway bindings.
+      placeholder: |
+        Route /orders/* to api-orders on port 8443.
+        Use subset v2 for 20% of traffic.
+        Expose through internal gateway only.
+    validations:
+      required: true
+  - type: checkboxes
+    id: mtls_requirements
+    attributes:
+      label: mTLS requirements
+      description: Select if mTLS must be enabled, preserved, or enforced.
+      options:
+        - label: mTLS is required for this change
+        - label: STRICT mTLS must remain enforced
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Add background, rollout considerations, dependencies, or links to existing mesh resources.
+      placeholder: |
+        Update the VirtualService for FAST to support a new internal route from Azure Enterprise Service Mesh.
+        Keep current gateway bindings and authorization behavior unless noted above.
+    validations:
+      required: true

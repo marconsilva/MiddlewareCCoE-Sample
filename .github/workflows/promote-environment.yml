@@ -1,0 +1,107 @@
+name: Promote Environment
+
+on:
+  workflow_call:
+    inputs:
+      source_environment:
+        description: Source environment that already contains the release candidate
+        required: true
+        type: string
+      target_environment:
+        description: Target environment to promote into
+        required: true
+        type: string
+      commit_sha:
+        description: Commit SHA being promoted
+        required: true
+        type: string
+      deployment_id:
+        description: Deployment tracking issue, PR, or external identifier
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  deployments: read
+  actions: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: promote-${{ inputs.source_environment }}-${{ inputs.target_environment }}-${{ inputs.commit_sha }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Promote ${{ inputs.source_environment }} to ${{ inputs.target_environment }}
+    runs-on: ubuntu-latest
+    env:
+      SOURCE_ENVIRONMENT: ${{ inputs.source_environment }}
+      TARGET_ENVIRONMENT: ${{ inputs.target_environment }}
+      COMMIT_SHA: ${{ inputs.commit_sha }}
+      TRACKING_ID: ${{ inputs.deployment_id }}
+    steps:
+      - name: Validate source deployment succeeded
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const deployments = await github.paginate(github.rest.repos.listDeployments, {
+              owner,
+              repo,
+              sha: process.env.COMMIT_SHA,
+              environment: process.env.SOURCE_ENVIRONMENT,
+              per_page: 10
+            });
+            if (!deployments.length) {
+              core.setFailed(`No deployment record found for ${process.env.SOURCE_ENVIRONMENT} and ${process.env.COMMIT_SHA}.`);
+              return;
+            }
+            const deployment = deployments[0];
+            const statuses = await github.paginate(github.rest.repos.listDeploymentStatuses, {
+              owner,
+              repo,
+              deployment_id: deployment.id,
+              per_page: 10
+            });
+            if (!statuses.length || statuses[0].state !== 'success') {
+              const currentState = statuses.length ? statuses[0].state : 'missing-status';
+              core.setFailed(`Source deployment ${deployment.id} is not successful (state: ${currentState}).`);
+              return;
+            }
+            core.info(`Validated successful ${process.env.SOURCE_ENVIRONMENT} deployment ${deployment.id}.`);
+
+      - name: Create promotion record
+        run: |
+          echo "Promotion approved from $SOURCE_ENVIRONMENT to $TARGET_ENVIRONMENT for commit $COMMIT_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "Tracking id: $TRACKING_ID" >> "$GITHUB_STEP_SUMMARY"
+          echo "Triggered by workflow run: ${{ github.run_id }}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Trigger target deployment workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run "deploy-$TARGET_ENVIRONMENT.yml" \
+            --ref "${{ github.ref_name }}" \
+            -f deployment_id="$TRACKING_ID" \
+            -f commit_sha="$COMMIT_SHA"
+
+      - name: Update deployment tracking issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const trackingId = process.env.TRACKING_ID;
+            if (!/^\d+$/.test(trackingId)) {
+              core.info(`Tracking id ${trackingId} is not a numeric issue or PR reference; skipping comment.`);
+              return;
+            }
+            try {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: Number(trackingId),
+                body: `Promotion triggered from **${process.env.SOURCE_ENVIRONMENT}** to **${process.env.TARGET_ENVIRONMENT}** for \`${process.env.COMMIT_SHA}\`.\n\nTarget workflow: \`deploy-${process.env.TARGET_ENVIRONMENT}.yml\``
+              });
+            } catch (error) {
+              core.warning(`Unable to update tracking issue/PR ${trackingId}: ${error.message}`);
+            }

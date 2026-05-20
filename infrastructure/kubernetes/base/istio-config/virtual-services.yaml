@@ -1,0 +1,74 @@
+# SAMPLE/DEMO VirtualServices for the FAST UI and APIs.
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: ui-default
+  namespace: fast
+spec:
+  hosts:
+    - fast-ui.sample.demo.local
+    - ui-default.fast.svc.cluster.local
+  gateways:
+    - fast-corporate-gateway
+    - mesh
+  http:
+    - name: ui-default-route
+      match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: ui-default.fast.svc.cluster.local
+            port:
+              number: 8080
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: api-etl
+  namespace: fast
+spec:
+  hosts:
+    - fast-etl.sample.demo.local
+    - api-etl.fast.svc.cluster.local
+  gateways:
+    - fast-corporate-gateway
+    - mesh
+  http:
+    - name: api-etl-route
+      match:
+        - uri:
+            prefix: /etl
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            host: api-etl.fast.svc.cluster.local
+            port:
+              number: 8080
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: api-model
+  namespace: fast
+spec:
+  hosts:
+    - fast-model.sample.demo.local
+    - api-model.fast.svc.cluster.local
+  gateways:
+    - fast-corporate-gateway
+    - mesh
+  http:
+    - name: api-model-route
+      match:
+        - uri:
+            prefix: /model
+      rewrite:
+        uri: /
+      route:
+        - destination:
+            host: api-model.fast.svc.cluster.local
+            port:
+              number: 8080

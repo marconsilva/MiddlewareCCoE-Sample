@@ -1,0 +1,92 @@
+name: Infrastructure change
+description: Request a firewall, VNET, route, or NSG infrastructure change across middleware environments.
+title: "[Infrastructure Change] "
+labels:
+  - infrastructure
+  - change-request
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for shared infrastructure changes supporting middleware connectivity.
+        Include source and destination details, traffic direction, and the business justification.
+  - type: dropdown
+    id: change_type
+    attributes:
+      label: Change type
+      description: Select the infrastructure component that must be updated.
+      options:
+        - Firewall Rule
+        - NSG Rule
+        - UDR/Route
+        - VNET/Subnet
+    validations:
+      required: true
+  - type: checkboxes
+    id: environments
+    attributes:
+      label: Environment
+      description: Select all environments affected by this infrastructure change.
+      options:
+        - label: DEV
+        - label: SYS
+        - label: INT
+        - label: ACC
+        - label: PRD
+        - label: PSU
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Source
+      description: Source system, subnet, CIDR, or platform location.
+      placeholder: Azure Enterprise Service Mesh / 10.20.30.0/24
+    validations:
+      required: true
+  - type: input
+    id: destination
+    attributes:
+      label: Destination
+      description: Destination system, subnet, CIDR, or platform location.
+      placeholder: Azure Dedicated Landing Zone (PR/OC) / 10.40.50.10
+    validations:
+      required: true
+  - type: input
+    id: port_protocol
+    attributes:
+      label: Port / protocol
+      description: Provide the port range and protocol needed.
+      placeholder: 443 / HTTPS or 5432 / TCP
+    validations:
+      required: true
+  - type: dropdown
+    id: direction
+    attributes:
+      label: Direction
+      description: Traffic direction for the requested change.
+      options:
+        - inbound
+        - outbound
+    validations:
+      required: true
+  - type: dropdown
+    id: action
+    attributes:
+      label: Action
+      description: Desired traffic decision for the rule or route.
+      options:
+        - allow
+        - deny
+    validations:
+      required: true
+  - type: textarea
+    id: justification
+    attributes:
+      label: Justification
+      description: Explain the need, impacted workloads, expected rollout window, and any rollback considerations.
+      placeholder: |
+        Allow outbound HTTPS from Azure Enterprise Service Mesh to the target subnet for new API connectivity.
+        Required before INT deployment and ACC validation.
+    validations:
+      required: true

@@ -1,0 +1,62 @@
+# SAMPLE/DEMO AuthorizationPolicies restricting FAST traffic to known callers.
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: ui-default-access
+  namespace: fast
+spec:
+  selector:
+    matchLabels:
+      app: ui-default
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            namespaces:
+              - istio-system
+      to:
+        - operation:
+            methods: ["GET", "POST"]
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: api-etl-access
+  namespace: fast
+spec:
+  selector:
+    matchLabels:
+      app: api-etl
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/fast/sa/ui-default
+              - cluster.local/ns/fast/sa/fast-corporate-ingress
+      to:
+        - operation:
+            methods: ["GET", "POST"]
+            paths: ["/*"]
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: api-model-access
+  namespace: fast
+spec:
+  selector:
+    matchLabels:
+      app: api-model
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            principals:
+              - cluster.local/ns/fast/sa/api-etl
+              - cluster.local/ns/fast/sa/fast-corporate-ingress
+      to:
+        - operation:
+            methods: ["GET", "POST"]
+            paths: ["/*"]

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "westeurope"
+    },
+    "namePrefix": {
+      "value": "fast-dev"
+    },
+    "vnetAddressSpace": {
+      "value": "10.0.0.0/16"
+    },
+    "subnetPrefixes": {
+      "value": {
+        "firewall": "10.0.0.0/26",
+        "serviceMesh": "10.0.1.0/24",
+        "storage": "10.0.10.0/24",
+        "database": "10.0.20.0/24"
+      }
+    },
+    "corpLanPrefixes": {
+      "value": [
+        "10.200.10.0/24"
+      ]
+    },
+    "onPremFabricPrefixes": {
+      "value": [
+        "10.70.10.0/24",
+        "10.70.11.0/24"
+      ]
+    },
+    "storageProviderPrefix": {
+      "value": "10.50.10.0/24"
+    },
+    "databaseProviderPrefix": {
+      "value": "10.50.20.0/24"
+    },
+    "internetEgressFqdns": {
+      "value": [
+        "graph.microsoft.com",
+        "*.sharepoint.com",
+        "login.microsoftonline.com"
+      ]
+    },
+    "firewallPrivateIp": {
+      "value": "10.0.0.4"
+    }
+  }
+}

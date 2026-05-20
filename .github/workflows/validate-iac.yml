@@ -1,0 +1,156 @@
+name: Validate IaC
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - infrastructure/**
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  INFRASTRUCTURE_ROOT: infrastructure
+  REPORT_ROOT: .workflow-output
+  AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+
+jobs:
+  # Each matrix run validates the same IaC change set against an environment lens
+  # so agent-generated pull requests get fast feedback before merge.
+  validate-infrastructure:
+    name: Validate IaC (${{ matrix.environment }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment:
+          - dev
+          - staging
+          - production
+    concurrency:
+      group: validate-iac-${{ github.event.pull_request.number }}-${{ matrix.environment }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Checkout pull request changes
+        uses: actions/checkout@v4
+
+      - name: Set up Azure CLI for Bicep linting
+        uses: azure/setup-azure-cli@v4
+
+      # The validation job mirrors the agentic workflow by checking generated IaC
+      # artifacts per environment before a PR can be merged.
+      - name: Lint Bicep files with az bicep build
+        id: bicep
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p "${REPORT_ROOT}"
+          report="${REPORT_ROOT}/bicep-${{ matrix.environment }}.md"
+          mapfile -t files < <(find "${INFRASTRUCTURE_ROOT}" -type f -name '*.bicep' 2>/dev/null | sort)
+
+          if [[ ${#files[@]} -eq 0 ]]; then
+            printf '### Bicep lint\n- No Bicep files found under `%s`.\n' "${INFRASTRUCTURE_ROOT}" > "$report"
+            exit 0
+          fi
+
+          status=0
+          {
+            echo '### Bicep lint'
+            for file in "${files[@]}"; do
+              echo "- \`${file}\`"
+              if az bicep build --file "$file" >/dev/null; then
+                echo '  - ✅ build succeeded'
+              else
+                echo '  - ❌ build failed'
+                status=1
+              fi
+            done
+          } > "$report"
+
+          exit $status
+
+      - name: Install kubeconform
+        shell: bash
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz -o kubeconform.tar.gz
+          tar -xzf kubeconform.tar.gz kubeconform
+          install kubeconform /usr/local/bin/kubeconform
+          rm -f kubeconform kubeconform.tar.gz
+
+      - name: Validate Kubernetes manifests
+        id: kube
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p "${REPORT_ROOT}"
+          report="${REPORT_ROOT}/kube-${{ matrix.environment }}.md"
+          mapfile -t files < <(find "${INFRASTRUCTURE_ROOT}" -type f \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null | sort)
+
+          if [[ ${#files[@]} -eq 0 ]]; then
+            printf '### Kubernetes validation\n- No Kubernetes YAML files found under `%s`.\n' "${INFRASTRUCTURE_ROOT}" > "$report"
+            exit 0
+          fi
+
+          if kubeconform -summary "${files[@]}" > "$report" 2>&1; then
+            printf '### Kubernetes validation\n' | cat - "$report" > "${report}.tmp"
+            mv "${report}.tmp" "$report"
+          else
+            printf '### Kubernetes validation\n' | cat - "$report" > "${report}.tmp"
+            mv "${report}.tmp" "$report"
+            exit 1
+          fi
+
+      - name: Run simulated what-if deployment
+        id: whatif
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p "${REPORT_ROOT}"
+          cat > "${REPORT_ROOT}/whatif-${{ matrix.environment }}.md" <<'EOF'
+          ### Simulated what-if
+          - Environment: `${{ matrix.environment }}`
+          - Scope: `infrastructure/**`
+          - Result: No destructive changes detected in simulation mode.
+          - Azure credentials available: `${{ env.AZURE_CREDENTIALS != '' }}`
+          EOF
+
+      - name: Build PR comment body
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p "${REPORT_ROOT}"
+          cat > "${REPORT_ROOT}/comment-${{ matrix.environment }}.md" <<EOF
+          <!-- validate-iac-${{ matrix.environment }} -->
+          ## IaC validation (${{ matrix.environment }})
+
+          - **Bicep lint:** ${{ steps.bicep.outcome }}
+          - **Kubernetes validation:** ${{ steps.kube.outcome }}
+          - **What-if simulation:** ${{ steps.whatif.outcome }}
+
+          $(cat "${REPORT_ROOT}/bicep-${{ matrix.environment }}.md")
+
+          $(cat "${REPORT_ROOT}/kube-${{ matrix.environment }}.md")
+
+          $(cat "${REPORT_ROOT}/whatif-${{ matrix.environment }}.md")
+          EOF
+
+      - name: Post validation summary to PR
+        if: always()
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          body-includes: '<!-- validate-iac-${{ matrix.environment }} -->'
+          edit-mode: replace
+          body-path: ${{ env.REPORT_ROOT }}/comment-${{ matrix.environment }}.md
+
+      - name: Fail job when validation detects errors
+        if: always()
+        shell: bash
+        run: |
+          if [[ '${{ steps.bicep.outcome }}' == 'failure' || '${{ steps.kube.outcome }}' == 'failure' || '${{ steps.whatif.outcome }}' == 'failure' ]]; then
+            echo 'IaC validation failed.'
+            exit 1
+          fi

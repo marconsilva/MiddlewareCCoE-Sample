@@ -1,0 +1,313 @@
+name: Agentic IaC Change
+run-name: >-
+  Agentic IaC change #${{ github.event.inputs.issue_number || github.event.workflow_run.display_title || github.run_id }}
+
+on:
+  workflow_run:
+    workflows:
+      - Issue Triage
+    types:
+      - completed
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue number to process.
+        required: true
+        type: number
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: agentic-iac-${{ github.event.inputs.issue_number || github.event.workflow_run.id || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  DEFAULT_BRANCH: main
+  REQUEST_ROOT: infrastructure
+  DEFAULT_REVIEWERS: ${{ vars.IAC_REVIEWERS || '' }}
+  AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+
+jobs:
+  # This job simulates an agent taking a triaged issue, generating IaC changes,
+  # and opening a pull request back to the GitOps repository.
+  process-request:
+    name: Generate agentic IaC change
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Resolve source issue
+        id: issue
+        uses: actions/github-script@v7
+        env:
+          MANUAL_ISSUE_NUMBER: ${{ github.event.inputs.issue_number }}
+        with:
+          script: |
+            let issueNumber;
+
+            if (context.eventName === 'workflow_dispatch') {
+              issueNumber = Number(process.env.MANUAL_ISSUE_NUMBER);
+            } else {
+              const title = context.payload.workflow_run.display_title || '';
+              const match = title.match(/#(\d+)/);
+
+              if (!match) {
+                core.setFailed(`Unable to determine the issue number from workflow run title: ${title}`);
+                return;
+              }
+
+              issueNumber = Number(match[1]);
+            }
+
+            const { data: issue } = await github.rest.issues.get({
+              ...context.repo,
+              issue_number: issueNumber,
+            });
+
+            const labels = issue.labels
+              .map((label) => typeof label === 'string' ? label : label.name)
+              .filter(Boolean);
+            const shortDescription = issue.title
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-+|-+$/g, '')
+              .slice(0, 40) || `issue-${issueNumber}`;
+            const requestType = labels.includes('service-mesh')
+              ? 'service-mesh'
+              : labels.includes('connectivity-request')
+                ? 'connectivity-request'
+                : 'infrastructure';
+
+            core.setOutput('issue_number', String(issue.number));
+            core.setOutput('issue_title', issue.title);
+            core.setOutput('issue_body', issue.body || '');
+            core.setOutput('issue_labels', labels.join(','));
+            core.setOutput('short_description', shortDescription);
+            core.setOutput('branch_name', `infra/${issue.number}-${shortDescription}`);
+            core.setOutput('request_type', requestType);
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ env.DEFAULT_BRANCH }}
+
+      - name: Create working branch
+        env:
+          BRANCH_NAME: ${{ steps.issue.outputs.branch_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$BRANCH_NAME"
+
+      - name: Detect Azure secret availability
+        shell: bash
+        run: |
+          if [[ -n "${AZURE_CREDENTIALS}" ]]; then
+            echo "Azure credentials detected for downstream environment-specific automation."
+          else
+            echo "AZURE_CREDENTIALS is not configured; continuing in simulation mode."
+          fi
+
+      - name: Simulate Copilot-driven IaC change
+        id: agent
+        uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ steps.issue.outputs.issue_number }}
+          ISSUE_TITLE: ${{ steps.issue.outputs.issue_title }}
+          ISSUE_BODY: ${{ steps.issue.outputs.issue_body }}
+          REQUEST_TYPE: ${{ steps.issue.outputs.request_type }}
+          REQUEST_ROOT: ${{ env.REQUEST_ROOT }}
+          SHORT_DESCRIPTION: ${{ steps.issue.outputs.short_description }}
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const issueNumber = process.env.ISSUE_NUMBER;
+            const issueTitle = process.env.ISSUE_TITLE;
+            const issueBody = process.env.ISSUE_BODY || '';
+            const requestType = process.env.REQUEST_TYPE;
+            const shortDescription = process.env.SHORT_DESCRIPTION;
+            const requestRoot = path.join(process.env.GITHUB_WORKSPACE, process.env.REQUEST_ROOT);
+
+            const parseIssueForm = (body) => {
+              const sections = {};
+              let current = null;
+
+              for (const rawLine of body.split(/\r?\n/)) {
+                const line = rawLine.trimEnd();
+                if (line.startsWith('### ')) {
+                  current = line.replace(/^###\s+/, '').trim();
+                  sections[current] = [];
+                  continue;
+                }
+
+                if (!current) {
+                  continue;
+                }
+
+                const trimmed = line.trim();
+                if (!trimmed || trimmed === '_No response_' || trimmed === 'No response') {
+                  continue;
+                }
+
+                if (/^[-*]\s+\[x\]\s+/i.test(trimmed)) {
+                  sections[current].push(trimmed.replace(/^[-*]\s+\[x\]\s+/i, '').trim());
+                  continue;
+                }
+
+                if (/^[-*]\s+/i.test(trimmed)) {
+                  sections[current].push(trimmed.replace(/^[-*]\s+/i, '').trim());
+                  continue;
+                }
+
+                sections[current].push(trimmed);
+              }
+
+              return Object.fromEntries(
+                Object.entries(sections)
+                  .filter(([, values]) => values.length > 0)
+                  .map(([key, values]) => [key, values.join('; ')])
+              );
+            };
+
+            const structured = parseIssueForm(issueBody);
+            const applicationName = structured['Application name'] || 'middleware-app';
+            const changeType = structured['Change type'] || structured['Modification type'] || requestType;
+            const environments = (structured['Environment scope'] || structured['Environment'] || 'DEV')
+              .split(';')
+              .map((value) => value.trim())
+              .filter(Boolean);
+            const requestDir = path.join(requestRoot, 'requests', `issue-${issueNumber}`);
+            const bicepDir = path.join(requestRoot, 'bicep');
+            const meshDir = path.join(requestRoot, 'kubernetes');
+            const changedFiles = [];
+
+            fs.mkdirSync(requestDir, { recursive: true });
+            fs.mkdirSync(bicepDir, { recursive: true });
+            fs.mkdirSync(meshDir, { recursive: true });
+
+            const metadataPath = path.join(requestDir, 'request.json');
+            fs.writeFileSync(metadataPath, JSON.stringify({
+              issueNumber: Number(issueNumber),
+              issueTitle,
+              requestType,
+              changeType,
+              applicationName,
+              environments,
+              structured,
+              generatedAt: new Date().toISOString(),
+            }, null, 2));
+            changedFiles.push(path.relative(process.env.GITHUB_WORKSPACE, metadataPath));
+
+            if (requestType === 'connectivity-request' || requestType === 'infrastructure') {
+              const bicepPath = path.join(bicepDir, `${shortDescription}.bicep`);
+              const envArray = environments.length ? environments : ['DEV'];
+              const bicepContent = `@description('Generated from GitHub issue #${issueNumber}')\nparam environment string = 'dev'\n\nvar requestEnvironments = [\n${envArray.map((value) => `  '${value}'`).join('\n')}\n]\n\nvar requestMetadata = {\n  issueNumber: '${issueNumber}'\n  application: '${applicationName}'\n  requestType: '${requestType}'\n  changeType: '${changeType}'\n}\n\noutput requestSummary object = {\n  environment: environment\n  metadata: requestMetadata\n  environments: requestEnvironments\n}\n`;
+              fs.writeFileSync(bicepPath, bicepContent);
+              changedFiles.push(path.relative(process.env.GITHUB_WORKSPACE, bicepPath));
+            }
+
+            if (requestType === 'service-mesh' || requestType === 'infrastructure') {
+              const namespace = structured['Target namespace'] || `${applicationName.toLowerCase()}-dev`;
+              const serviceName = structured['Service name'] || structured['Target service'] || `${applicationName.toLowerCase()}-service`;
+              const meshPath = path.join(meshDir, `${shortDescription}.yaml`);
+              const meshContent = `apiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata:\n  name: ${shortDescription}\n  namespace: ${namespace}\n  labels:\n    app.kubernetes.io/managed-by: github-actions\n    middleware.proximus.com/issue: '${issueNumber}'\nspec:\n  podSelector:\n    matchLabels:\n      app: ${serviceName}\n  policyTypes:\n    - Ingress\n    - Egress\n  ingress:\n    - from:\n        - namespaceSelector: {}\n  egress:\n    - to:\n        - namespaceSelector: {}\n`;
+              fs.writeFileSync(meshPath, meshContent);
+              changedFiles.push(path.relative(process.env.GITHUB_WORKSPACE, meshPath));
+            }
+
+            const summaryLines = [
+              `- **Request type:** ${requestType}`,
+              `- **Change type:** ${changeType}`,
+              `- **Application:** ${applicationName}`,
+              `- **Environments:** ${environments.join(', ') || 'DEV'}`,
+            ];
+
+            core.setOutput('changed_files', changedFiles.join('\n'));
+            core.setOutput('summary', summaryLines.join('\n'));
+
+      - name: Inspect generated changes
+        run: |
+          git status --short
+          git diff -- infrastructure
+
+      - name: Create pull request
+        id: create-pr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: ${{ steps.issue.outputs.branch_name }}
+          base: ${{ env.DEFAULT_BRANCH }}
+          delete-branch: false
+          commit-message: |
+            chore: process middleware request #${{ steps.issue.outputs.issue_number }}
+          title: >-
+            chore: process middleware request #${{ steps.issue.outputs.issue_number }}
+          body: |
+            ## Agentic IaC change
+
+            This PR was generated by the repository's agentic IaC workflow.
+
+            ### Request summary
+            ${{ steps.agent.outputs.summary }}
+
+            ### Generated files
+            ```text
+            ${{ steps.agent.outputs.changed_files }}
+            ```
+
+            Closes #${{ steps.issue.outputs.issue_number }}
+          labels: processing,agentic-change,${{ steps.issue.outputs.request_type }}
+
+      - name: Add reviewers
+        if: steps.create-pr.outputs.pull-request-number != '' && env.DEFAULT_REVIEWERS != ''
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.create-pr.outputs.pull-request-number }}
+          DEFAULT_REVIEWERS: ${{ env.DEFAULT_REVIEWERS }}
+        with:
+          script: |
+            const reviewers = (process.env.DEFAULT_REVIEWERS || '')
+              .split(',')
+              .map((value) => value.trim())
+              .filter(Boolean);
+
+            if (!reviewers.length) {
+              return;
+            }
+
+            try {
+              await github.rest.pulls.requestReviewers({
+                ...context.repo,
+                pull_number: Number(process.env.PR_NUMBER),
+                reviewers,
+              });
+            } catch (error) {
+              core.warning(`Unable to assign reviewers: ${error.message}`);
+            }
+
+      - name: Comment on originating issue
+        if: steps.create-pr.outputs.pull-request-number != ''
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ steps.issue.outputs.issue_number }}
+          body-includes: '<!-- agentic-iac-status -->'
+          edit-mode: replace
+          body: |
+            <!-- agentic-iac-status -->
+            ## Agentic IaC workflow status
+
+            A pull request has been prepared for this request.
+
+            - **PR:** ${{ steps.create-pr.outputs.pull-request-url }}
+            - **Branch:** `${{ steps.issue.outputs.branch_name }}`
+            - **Generated files:**
+              ```text
+              ${{ steps.agent.outputs.changed_files }}
+              ```

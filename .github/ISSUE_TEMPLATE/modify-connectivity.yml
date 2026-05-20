@@ -1,0 +1,101 @@
+name: Modify connectivity
+description: Request a change to existing connectivity such as consumers, rules, or routes.
+title: "[Modify Connectivity] "
+labels:
+  - connectivity-request
+  - modification
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for changes to existing connectivity definitions.
+        Capture the service, consumer endpoint details, and the exact action required.
+  - type: input
+    id: application_name
+    attributes:
+      label: Application name
+      description: Existing application or solution impacted by this change.
+      placeholder: FAST
+    validations:
+      required: true
+  - type: dropdown
+    id: modification_type
+    attributes:
+      label: Modification type
+      description: Select the primary change being requested.
+      options:
+        - Add Consumer
+        - Remove Consumer
+        - Update Firewall Rule
+        - Update NSG Rule
+        - Update Route
+    validations:
+      required: true
+  - type: input
+    id: target_service
+    attributes:
+      label: Target service
+      description: Service identifier or friendly name impacted by the change.
+      placeholder: FLV001090V1 / api-orders
+    validations:
+      required: true
+  - type: input
+    id: consumer_aris_code
+    attributes:
+      label: Consumer ARIS code
+      description: Consumer application code to add, remove, or update.
+      placeholder: FAST
+    validations:
+      required: true
+  - type: dropdown
+    id: consumer_location
+    attributes:
+      label: Consumer location
+      description: Select the consumer endpoint location.
+      options:
+        - Azure Enterprise Service Mesh
+        - Azure Dedicated Landing Zone (PR/OC)
+        - Azure Dedicated Landing Zone (OD)
+        - Azure Proximus Tenant (different from ENTSMA)
+        - Azure Partner Tenant
+        - On-premise Corporate fabric
+        - On-premise Services fabric
+        - On-premise OSS fabric
+        - On-premise Telco Cloud 1
+        - On-premise Telco Cloud 2
+        - On-premise Corporate LAN
+        - Internet
+    validations:
+      required: true
+  - type: dropdown
+    id: consumer_protocol
+    attributes:
+      label: Consumer protocol
+      description: Select the connectivity protocol used by the consumer.
+      options:
+        - HTTP
+        - HTTPS
+        - TCP
+        - SFTP
+    validations:
+      required: true
+  - type: dropdown
+    id: action
+    attributes:
+      label: Action
+      description: Desired action for the consumer or rule change.
+      options:
+        - Add
+        - Remove
+    validations:
+      required: true
+  - type: textarea
+    id: justification
+    attributes:
+      label: Justification
+      description: Explain why the change is needed, impacted environments, and any timing or dependency constraints.
+      placeholder: |
+        Add FAST as a consumer of api-orders from Azure Enterprise Service Mesh over HTTPS.
+        Change needed for INT testing before ACC go-live.
+    validations:
+      required: true
