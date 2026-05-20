@@ -1,0 +1,633 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.42.1.51946",
+      "templateHash": "10277275016542867224"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]"
+    },
+    "namePrefix": {
+      "type": "string"
+    },
+    "vnetAddressSpace": {
+      "type": "string"
+    },
+    "subnetPrefixes": {
+      "type": "object"
+    },
+    "corpLanPrefixes": {
+      "type": "array"
+    },
+    "onPremFabricPrefixes": {
+      "type": "array"
+    },
+    "storageProviderPrefix": {
+      "type": "string"
+    },
+    "databaseProviderPrefix": {
+      "type": "string"
+    },
+    "firewallPrivateIp": {
+      "type": "string"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('{0}-mesh-nsg', parameters('namePrefix'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "nsgName": {
+            "value": "[format('{0}-nsg-mesh', parameters('namePrefix'))]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "securityRules": {
+            "value": [
+              {
+                "name": "Allow-Corporate-Inbound-Web",
+                "description": "Allow SAMPLE/DEMO corporate LAN access to the FAST UI and APIs via the service mesh ingress.",
+                "priority": 100,
+                "direction": "Inbound",
+                "access": "Allow",
+                "protocol": "Tcp",
+                "sourcePortRange": "*",
+                "destinationPortRanges": [
+                  "80",
+                  "443"
+                ],
+                "sourceAddressPrefixes": "[parameters('corpLanPrefixes')]",
+                "destinationAddressPrefix": "[parameters('subnetPrefixes').serviceMesh]"
+              },
+              {
+                "name": "Allow-Mesh-To-Storage",
+                "description": "Allow FAST workloads to reach the dedicated landing zone storage endpoint.",
+                "priority": 200,
+                "direction": "Outbound",
+                "access": "Allow",
+                "protocol": "Tcp",
+                "sourcePortRange": "*",
+                "destinationPortRange": "443",
+                "sourceAddressPrefix": "[parameters('subnetPrefixes').serviceMesh]",
+                "destinationAddressPrefix": "[parameters('storageProviderPrefix')]"
+              },
+              {
+                "name": "Allow-Mesh-To-Database",
+                "description": "Allow FAST workloads to reach PostgreSQL in the dedicated landing zone.",
+                "priority": 210,
+                "direction": "Outbound",
+                "access": "Allow",
+                "protocol": "Tcp",
+                "sourcePortRange": "*",
+                "destinationPortRange": "5432",
+                "sourceAddressPrefix": "[parameters('subnetPrefixes').serviceMesh]",
+                "destinationAddressPrefix": "[parameters('databaseProviderPrefix')]"
+              },
+              {
+                "name": "Allow-Mesh-To-FileTransfer",
+                "description": "Allow HTTPS traffic from FAST to on-premise file transfer providers.",
+                "priority": 220,
+                "direction": "Outbound",
+                "access": "Allow",
+                "protocol": "Tcp",
+                "sourcePortRange": "*",
+                "destinationPortRange": "443",
+                "sourceAddressPrefix": "[parameters('subnetPrefixes').serviceMesh]",
+                "destinationAddressPrefixes": "[parameters('onPremFabricPrefixes')]"
+              },
+              {
+                "name": "Allow-Mesh-To-Internet-SaaS",
+                "description": "Allow HTTPS egress to Microsoft Graph and SharePoint via the Azure Firewall.",
+                "priority": 230,
+                "direction": "Outbound",
+                "access": "Allow",
+                "protocol": "Tcp",
+                "sourcePortRange": "*",
+                "destinationPortRange": "443",
+                "sourceAddressPrefix": "[parameters('subnetPrefixes').serviceMesh]",
+                "destinationAddressPrefix": "Internet"
+              }
+            ]
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "8352499857246281018"
+            }
+          },
+          "parameters": {
+            "nsgName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the Network Security Group to create."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "Azure region for the NSG."
+              }
+            },
+            "securityRules": {
+              "type": "array",
+              "metadata": {
+                "description": "Security rules to apply to the NSG. SAMPLE/DEMO values are expected from the environment wrappers."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/networkSecurityGroups",
+              "apiVersion": "2023-09-01",
+              "name": "[parameters('nsgName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "copy": [
+                  {
+                    "name": "securityRules",
+                    "count": "[length(parameters('securityRules'))]",
+                    "input": {
+                      "name": "[parameters('securityRules')[copyIndex('securityRules')].name]",
+                      "properties": "[union(createObject('description', if(contains(parameters('securityRules')[copyIndex('securityRules')], 'description'), parameters('securityRules')[copyIndex('securityRules')].description, 'SAMPLE/DEMO NSG rule for FAST'), 'priority', parameters('securityRules')[copyIndex('securityRules')].priority, 'direction', parameters('securityRules')[copyIndex('securityRules')].direction, 'access', parameters('securityRules')[copyIndex('securityRules')].access, 'protocol', parameters('securityRules')[copyIndex('securityRules')].protocol), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'sourcePortRange'), createObject('sourcePortRange', parameters('securityRules')[copyIndex('securityRules')].sourcePortRange), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'sourcePortRanges'), createObject('sourcePortRanges', parameters('securityRules')[copyIndex('securityRules')].sourcePortRanges), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'destinationPortRange'), createObject('destinationPortRange', parameters('securityRules')[copyIndex('securityRules')].destinationPortRange), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'destinationPortRanges'), createObject('destinationPortRanges', parameters('securityRules')[copyIndex('securityRules')].destinationPortRanges), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'sourceAddressPrefix'), createObject('sourceAddressPrefix', parameters('securityRules')[copyIndex('securityRules')].sourceAddressPrefix), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'sourceAddressPrefixes'), createObject('sourceAddressPrefixes', parameters('securityRules')[copyIndex('securityRules')].sourceAddressPrefixes), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'destinationAddressPrefix'), createObject('destinationAddressPrefix', parameters('securityRules')[copyIndex('securityRules')].destinationAddressPrefix), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'destinationAddressPrefixes'), createObject('destinationAddressPrefixes', parameters('securityRules')[copyIndex('securityRules')].destinationAddressPrefixes), createObject()))]"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "outputs": {
+            "nsgId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('nsgName'))]"
+            },
+            "nsgName": {
+              "type": "string",
+              "value": "[parameters('nsgName')]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('{0}-storage-nsg', parameters('namePrefix'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "nsgName": {
+            "value": "[format('{0}-nsg-storage', parameters('namePrefix'))]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "securityRules": {
+            "value": [
+              {
+                "name": "Allow-ServiceMesh-To-Storage",
+                "description": "Allow FAST service mesh workloads to reach the storage integration subnet over HTTPS.",
+                "priority": 100,
+                "direction": "Inbound",
+                "access": "Allow",
+                "protocol": "Tcp",
+                "sourcePortRange": "*",
+                "destinationPortRange": "443",
+                "sourceAddressPrefix": "[parameters('subnetPrefixes').serviceMesh]",
+                "destinationAddressPrefix": "[parameters('subnetPrefixes').storage]"
+              }
+            ]
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "8352499857246281018"
+            }
+          },
+          "parameters": {
+            "nsgName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the Network Security Group to create."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "Azure region for the NSG."
+              }
+            },
+            "securityRules": {
+              "type": "array",
+              "metadata": {
+                "description": "Security rules to apply to the NSG. SAMPLE/DEMO values are expected from the environment wrappers."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/networkSecurityGroups",
+              "apiVersion": "2023-09-01",
+              "name": "[parameters('nsgName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "copy": [
+                  {
+                    "name": "securityRules",
+                    "count": "[length(parameters('securityRules'))]",
+                    "input": {
+                      "name": "[parameters('securityRules')[copyIndex('securityRules')].name]",
+                      "properties": "[union(createObject('description', if(contains(parameters('securityRules')[copyIndex('securityRules')], 'description'), parameters('securityRules')[copyIndex('securityRules')].description, 'SAMPLE/DEMO NSG rule for FAST'), 'priority', parameters('securityRules')[copyIndex('securityRules')].priority, 'direction', parameters('securityRules')[copyIndex('securityRules')].direction, 'access', parameters('securityRules')[copyIndex('securityRules')].access, 'protocol', parameters('securityRules')[copyIndex('securityRules')].protocol), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'sourcePortRange'), createObject('sourcePortRange', parameters('securityRules')[copyIndex('securityRules')].sourcePortRange), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'sourcePortRanges'), createObject('sourcePortRanges', parameters('securityRules')[copyIndex('securityRules')].sourcePortRanges), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'destinationPortRange'), createObject('destinationPortRange', parameters('securityRules')[copyIndex('securityRules')].destinationPortRange), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'destinationPortRanges'), createObject('destinationPortRanges', parameters('securityRules')[copyIndex('securityRules')].destinationPortRanges), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'sourceAddressPrefix'), createObject('sourceAddressPrefix', parameters('securityRules')[copyIndex('securityRules')].sourceAddressPrefix), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'sourceAddressPrefixes'), createObject('sourceAddressPrefixes', parameters('securityRules')[copyIndex('securityRules')].sourceAddressPrefixes), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'destinationAddressPrefix'), createObject('destinationAddressPrefix', parameters('securityRules')[copyIndex('securityRules')].destinationAddressPrefix), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'destinationAddressPrefixes'), createObject('destinationAddressPrefixes', parameters('securityRules')[copyIndex('securityRules')].destinationAddressPrefixes), createObject()))]"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "outputs": {
+            "nsgId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('nsgName'))]"
+            },
+            "nsgName": {
+              "type": "string",
+              "value": "[parameters('nsgName')]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('{0}-database-nsg', parameters('namePrefix'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "nsgName": {
+            "value": "[format('{0}-nsg-database', parameters('namePrefix'))]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "securityRules": {
+            "value": [
+              {
+                "name": "Allow-ServiceMesh-To-PostgreSql",
+                "description": "Allow FAST workloads to access PostgreSQL over TCP/5432.",
+                "priority": 100,
+                "direction": "Inbound",
+                "access": "Allow",
+                "protocol": "Tcp",
+                "sourcePortRange": "*",
+                "destinationPortRange": "5432",
+                "sourceAddressPrefix": "[parameters('subnetPrefixes').serviceMesh]",
+                "destinationAddressPrefix": "[parameters('subnetPrefixes').database]"
+              }
+            ]
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "8352499857246281018"
+            }
+          },
+          "parameters": {
+            "nsgName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the Network Security Group to create."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "Azure region for the NSG."
+              }
+            },
+            "securityRules": {
+              "type": "array",
+              "metadata": {
+                "description": "Security rules to apply to the NSG. SAMPLE/DEMO values are expected from the environment wrappers."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/networkSecurityGroups",
+              "apiVersion": "2023-09-01",
+              "name": "[parameters('nsgName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "copy": [
+                  {
+                    "name": "securityRules",
+                    "count": "[length(parameters('securityRules'))]",
+                    "input": {
+                      "name": "[parameters('securityRules')[copyIndex('securityRules')].name]",
+                      "properties": "[union(createObject('description', if(contains(parameters('securityRules')[copyIndex('securityRules')], 'description'), parameters('securityRules')[copyIndex('securityRules')].description, 'SAMPLE/DEMO NSG rule for FAST'), 'priority', parameters('securityRules')[copyIndex('securityRules')].priority, 'direction', parameters('securityRules')[copyIndex('securityRules')].direction, 'access', parameters('securityRules')[copyIndex('securityRules')].access, 'protocol', parameters('securityRules')[copyIndex('securityRules')].protocol), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'sourcePortRange'), createObject('sourcePortRange', parameters('securityRules')[copyIndex('securityRules')].sourcePortRange), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'sourcePortRanges'), createObject('sourcePortRanges', parameters('securityRules')[copyIndex('securityRules')].sourcePortRanges), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'destinationPortRange'), createObject('destinationPortRange', parameters('securityRules')[copyIndex('securityRules')].destinationPortRange), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'destinationPortRanges'), createObject('destinationPortRanges', parameters('securityRules')[copyIndex('securityRules')].destinationPortRanges), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'sourceAddressPrefix'), createObject('sourceAddressPrefix', parameters('securityRules')[copyIndex('securityRules')].sourceAddressPrefix), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'sourceAddressPrefixes'), createObject('sourceAddressPrefixes', parameters('securityRules')[copyIndex('securityRules')].sourceAddressPrefixes), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'destinationAddressPrefix'), createObject('destinationAddressPrefix', parameters('securityRules')[copyIndex('securityRules')].destinationAddressPrefix), createObject()), if(contains(parameters('securityRules')[copyIndex('securityRules')], 'destinationAddressPrefixes'), createObject('destinationAddressPrefixes', parameters('securityRules')[copyIndex('securityRules')].destinationAddressPrefixes), createObject()))]"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "outputs": {
+            "nsgId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('nsgName'))]"
+            },
+            "nsgName": {
+              "type": "string",
+              "value": "[parameters('nsgName')]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('{0}-vnet', parameters('namePrefix'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "vnetName": {
+            "value": "[format('{0}-vnet', parameters('namePrefix'))]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "addressSpace": {
+            "value": "[parameters('vnetAddressSpace')]"
+          },
+          "subnets": {
+            "value": [
+              {
+                "name": "AzureFirewallSubnet",
+                "properties": {
+                  "addressPrefix": "[parameters('subnetPrefixes').firewall]"
+                }
+              },
+              {
+                "name": "snet-aks-mesh",
+                "properties": {
+                  "addressPrefix": "[parameters('subnetPrefixes').serviceMesh]",
+                  "networkSecurityGroup": {
+                    "id": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-mesh-nsg', parameters('namePrefix'))), '2025-04-01').outputs.nsgId.value]"
+                  },
+                  "routeTable": {
+                    "id": "[resourceId('Microsoft.Network/routeTables', format('{0}-rt-mesh', parameters('namePrefix')))]"
+                  },
+                  "serviceEndpoints": [
+                    {
+                      "service": "Microsoft.Storage"
+                    },
+                    {
+                      "service": "Microsoft.KeyVault"
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "snet-storage-integration",
+                "properties": {
+                  "addressPrefix": "[parameters('subnetPrefixes').storage]",
+                  "networkSecurityGroup": {
+                    "id": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-storage-nsg', parameters('namePrefix'))), '2025-04-01').outputs.nsgId.value]"
+                  },
+                  "routeTable": {
+                    "id": "[resourceId('Microsoft.Network/routeTables', format('{0}-rt-mesh', parameters('namePrefix')))]"
+                  },
+                  "serviceEndpoints": [
+                    {
+                      "service": "Microsoft.Storage"
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "snet-database-integration",
+                "properties": {
+                  "addressPrefix": "[parameters('subnetPrefixes').database]",
+                  "networkSecurityGroup": {
+                    "id": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-database-nsg', parameters('namePrefix'))), '2025-04-01').outputs.nsgId.value]"
+                  },
+                  "routeTable": {
+                    "id": "[resourceId('Microsoft.Network/routeTables', format('{0}-rt-mesh', parameters('namePrefix')))]"
+                  }
+                }
+              }
+            ]
+          },
+          "routeTables": {
+            "value": [
+              {
+                "name": "[format('{0}-rt-mesh', parameters('namePrefix'))]",
+                "properties": {
+                  "disableBgpRoutePropagation": false,
+                  "routes": [
+                    {
+                      "name": "to-fast-storage",
+                      "properties": {
+                        "addressPrefix": "[parameters('storageProviderPrefix')]",
+                        "nextHopType": "VirtualAppliance",
+                        "nextHopIpAddress": "[parameters('firewallPrivateIp')]"
+                      }
+                    },
+                    {
+                      "name": "to-fast-database",
+                      "properties": {
+                        "addressPrefix": "[parameters('databaseProviderPrefix')]",
+                        "nextHopType": "VirtualAppliance",
+                        "nextHopIpAddress": "[parameters('firewallPrivateIp')]"
+                      }
+                    },
+                    {
+                      "name": "to-corporate-lan",
+                      "properties": {
+                        "addressPrefix": "[parameters('corpLanPrefixes')[0]]",
+                        "nextHopType": "VirtualAppliance",
+                        "nextHopIpAddress": "[parameters('firewallPrivateIp')]"
+                      }
+                    },
+                    {
+                      "name": "to-onprem-file-transfer",
+                      "properties": {
+                        "addressPrefix": "[parameters('onPremFabricPrefixes')[0]]",
+                        "nextHopType": "VirtualAppliance",
+                        "nextHopIpAddress": "[parameters('firewallPrivateIp')]"
+                      }
+                    },
+                    {
+                      "name": "default-egress-via-firewall",
+                      "properties": {
+                        "addressPrefix": "0.0.0.0/0",
+                        "nextHopType": "VirtualAppliance",
+                        "nextHopIpAddress": "[parameters('firewallPrivateIp')]"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "15494059103586251070"
+            }
+          },
+          "parameters": {
+            "vnetName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the virtual network."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "Azure region for all networking resources."
+              }
+            },
+            "addressSpace": {
+              "type": "string",
+              "metadata": {
+                "description": "Primary address space for the virtual network."
+              }
+            },
+            "dnsServers": {
+              "type": "array",
+              "defaultValue": [],
+              "metadata": {
+                "description": "Optional custom DNS servers for the VNET."
+              }
+            },
+            "subnets": {
+              "type": "array",
+              "metadata": {
+                "description": "Subnet resources already shaped for the Microsoft.Network virtualNetworks API."
+              }
+            },
+            "routeTables": {
+              "type": "array",
+              "defaultValue": [],
+              "metadata": {
+                "description": "Route table resources already shaped for the Microsoft.Network routeTables API."
+              }
+            }
+          },
+          "resources": [
+            {
+              "copy": {
+                "name": "routeTableResources",
+                "count": "[length(parameters('routeTables'))]"
+              },
+              "type": "Microsoft.Network/routeTables",
+              "apiVersion": "2023-09-01",
+              "name": "[parameters('routeTables')[copyIndex()].name]",
+              "location": "[parameters('location')]",
+              "properties": "[parameters('routeTables')[copyIndex()].properties]"
+            },
+            {
+              "type": "Microsoft.Network/virtualNetworks",
+              "apiVersion": "2023-09-01",
+              "name": "[parameters('vnetName')]",
+              "location": "[parameters('location')]",
+              "properties": "[union(createObject('addressSpace', createObject('addressPrefixes', createArray(parameters('addressSpace'))), 'subnets', parameters('subnets')), if(greater(length(parameters('dnsServers')), 0), createObject('dhcpOptions', createObject('dnsServers', parameters('dnsServers'))), createObject()))]"
+            }
+          ],
+          "outputs": {
+            "vnetId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+            },
+            "subnetResourceIds": {
+              "type": "array",
+              "copy": {
+                "count": "[length(parameters('subnets'))]",
+                "input": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), parameters('subnets')[copyIndex()].name)]"
+              }
+            },
+            "routeTableNames": {
+              "type": "array",
+              "copy": {
+                "count": "[length(parameters('routeTables'))]",
+                "input": "[parameters('routeTables')[copyIndex()].name]"
+              }
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', format('{0}-database-nsg', parameters('namePrefix')))]",
+        "[resourceId('Microsoft.Resources/deployments', format('{0}-mesh-nsg', parameters('namePrefix')))]",
+        "[resourceId('Microsoft.Resources/deployments', format('{0}-storage-nsg', parameters('namePrefix')))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "vnetId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-vnet', parameters('namePrefix'))), '2025-04-01').outputs.vnetId.value]"
+    },
+    "meshNsgId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-mesh-nsg', parameters('namePrefix'))), '2025-04-01').outputs.nsgId.value]"
+    },
+    "storageNsgId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-storage-nsg', parameters('namePrefix'))), '2025-04-01').outputs.nsgId.value]"
+    },
+    "databaseNsgId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-database-nsg', parameters('namePrefix'))), '2025-04-01').outputs.nsgId.value]"
+    }
+  }
+}
