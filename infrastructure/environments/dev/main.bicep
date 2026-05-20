@@ -28,6 +28,9 @@ param databaseProviderPrefix string
 @description('FQDNs that FAST is allowed to reach on the public internet.')
 param internetEgressFqdns array
 
+@description('Netflix API FQDNs that FAST can reach over HTTP from the service mesh.')
+param netflixApiFqdns array
+
 @description('Private IP address of the Azure Firewall used as next hop in the UDRs.')
 param firewallPrivateIp string
 
@@ -57,6 +60,7 @@ module firewall './firewall-rules.bicep' = {
     databaseProviderPrefix: databaseProviderPrefix
     serviceMeshSubnetPrefix: subnetPrefixes.serviceMesh
     internetEgressFqdns: internetEgressFqdns
+    netflixApiFqdns: netflixApiFqdns
   }
   dependsOn: [
     networking

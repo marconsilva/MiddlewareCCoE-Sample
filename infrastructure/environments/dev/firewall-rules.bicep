@@ -9,6 +9,7 @@ param storageProviderPrefix string
 param databaseProviderPrefix string
 param serviceMeshSubnetPrefix string
 param internetEgressFqdns array
+param netflixApiFqdns array = []
 
 module firewall '../../modules/firewall/main.bicep' = {
   name: '${namePrefix}-firewall-policy'
@@ -130,6 +131,21 @@ module firewall '../../modules/firewall/main.bicep' = {
               {
                 protocolType: 'Https'
                 port: 443
+              }
+            ]
+          }
+          {
+            name: 'mesh-to-netflix-api'
+            ruleType: 'ApplicationRule'
+            sourceAddresses: [
+              serviceMeshSubnetPrefix
+            ]
+            targetFqdns: netflixApiFqdns
+            terminateTLS: false
+            protocols: [
+              {
+                protocolType: 'Http'
+                port: 80
               }
             ]
           }
